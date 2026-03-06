@@ -12,7 +12,7 @@ class E2BService {
     
     // First, test the API key directly
     try {
-      const testResponse = await fetch('https://api.e2b.dev/sandboxes', {
+      const testResponse = await fetch('https://api.e2b.app/sandboxes', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${this.apiKey}`,
@@ -40,20 +40,36 @@ class E2BService {
         });
         if (sandbox && sandbox.files) {
           console.log(`✅ Template ${template} succeeded`);
+
+          // Write all files
           for (const [filePath, content] of Object.entries(files)) {
             await sandbox.files.write(filePath, content);
           }
-          const install = await sandbox.commands.run('npm install');
-          if (install.exitCode !== 0) {
-            throw new Error(`npm install failed: ${install.stderr}`);
+
+          // Only run npm install if package.json exists
+          const hasPackageJson = Object.keys(files).some(path => path.endsWith('package.json'));
+          let installResult = { stdout: '', stderr: '' };
+          if (hasPackageJson) {
+            console.log('Running npm install...');
+            installResult = await sandbox.commands.run('npm install');
+            if (installResult.exitCode !== 0) {
+              throw new Error(`npm install failed: ${installResult.stderr}`);
+            }
+          } else {
+            console.log('No package.json found, skipping npm install');
           }
+
+          // Start the dev server
           await sandbox.commands.run(startCommand, { background: true });
+
+          // Construct preview URL (hardcoded port – adjust if needed)
           const previewUrl = `https://${5173}-${sandbox.sandboxId}.e2b.app`;
           this.activeSandboxes.set(sandbox.sandboxId, { sandbox, createdAt: new Date(), previewUrl });
+
           return {
             sessionId: sandbox.sandboxId,
             previewUrl,
-            logs: { stdout: install.stdout, stderr: install.stderr }
+            logs: { stdout: installResult.stdout, stderr: installResult.stderr }
           };
         } else {
           console.log(`Template ${template} returned sandbox without filesystem`, sandbox);
