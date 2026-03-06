@@ -9,23 +9,6 @@ class E2BService {
 
   async createPreviewSession(files, startCommand = 'npm run dev') {
     console.log('Creating preview session with API key length:', this.apiKey?.length);
-    
-    // First, test the API key directly
-    try {
-      const testResponse = await fetch('https://api.e2b.app/sandboxes', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${this.apiKey}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ template: 'nodejs' })
-      });
-      const testData = await testResponse.text();
-      console.log('Direct API test status:', testResponse.status);
-      console.log('Direct API test response:', testData);
-    } catch (testErr) {
-      console.error('Direct API test failed:', testErr);
-    }
 
     const templates = ['nodejs', 'node-18', 'node', 'base', 'ubuntu'];
     let lastError;
@@ -59,8 +42,14 @@ class E2BService {
             console.log('No package.json found, skipping npm install');
           }
 
-          // Start the dev server
-          await sandbox.commands.run(startCommand, { background: true });
+          // Run the start command and capture its output
+          console.log(`Running start command: ${startCommand}`);
+          const startResult = await sandbox.commands.run(startCommand);
+          
+          // If the start command exited immediately with an error, throw
+          if (startResult.exitCode !== 0) {
+            throw new Error(`Start command failed (code ${startResult.exitCode}): ${startResult.stderr}`);
+          }
 
           // Construct preview URL (hardcoded port – adjust if needed)
           const previewUrl = `https://${5173}-${sandbox.sandboxId}.e2b.app`;
@@ -76,10 +65,6 @@ class E2BService {
         }
       } catch (err) {
         console.error(`Template ${template} failed – full error:`, err);
-        if (err.response) {
-          const responseText = await err.response.text();
-          console.error('Response body:', responseText);
-        }
         lastError = err;
       }
     }
