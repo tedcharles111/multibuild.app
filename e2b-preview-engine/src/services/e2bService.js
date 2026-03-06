@@ -10,7 +10,7 @@ class E2BService {
   async createPreviewSession(files, startCommand = 'npm run dev') {
     console.log('Creating preview session with API key length:', this.apiKey?.length);
 
-    const templates = ['node']; // Focus on the reliable template
+    const templates = ['node'];
     let lastError;
 
     for (const template of templates) {
@@ -28,61 +28,34 @@ class E2BService {
         }
         console.log(`✅ Template ${template} succeeded`);
 
-        // Write all files
         for (const [filePath, content] of Object.entries(files)) {
           await sandbox.files.write(filePath, content);
         }
 
-        // Only run npm install if package.json exists
         const hasPackageJson = Object.keys(files).some(path => path.endsWith('package.json'));
-        let installResult = { stdout: '', stderr: '' };
         if (hasPackageJson) {
           console.log('Running npm install...');
-          installResult = await sandbox.commands.run('npm install');
-          if (installResult.exitCode !== 0) {
-            throw new Error(`npm install failed: ${installResult.stderr}`);
+          const install = await sandbox.commands.run('npm install');
+          if (install.exitCode !== 0) {
+            throw new Error(`npm install failed: ${install.stderr}`);
           }
         } else {
           console.log('No package.json found, skipping npm install');
         }
 
-        // Run the start command in the background
-        console.log(`Starting: ${startCommand}`);
-        const proc = await sandbox.commands.run(startCommand, { background: true });
-
-        // Wait up to 30 seconds for the server to start on port 5173
-        const port = 5173;
-        let ready = false;
-        for (let i = 0; i < 30; i++) {
-          await new Promise(r => setTimeout(r, 1000));
-          // Check if process exited prematurely
-          if (proc.exitCode !== null) {
-            // Try to get the output (E2B might have a way, but we'll rely on logs for now)
-            throw new Error(`Start command exited early with code ${proc.exitCode}. Check Render logs for stderr.`);
-          }
-          // Try to connect to the port
-          try {
-            const test = await fetch(`http://localhost:${port}`);
-            if (test.ok) {
-              ready = true;
-              break;
-            }
-          } catch {
-            // port not ready yet
-          }
+        // 🔥 Run the start command synchronously to capture output
+        console.log(`Starting synchronously: ${startCommand}`);
+        const result = await sandbox.commands.run(startCommand);
+        if (result.exitCode !== 0) {
+          throw new Error(`Start command failed (code ${result.exitCode}): ${result.stderr}`);
         }
 
-        if (!ready) {
-          throw new Error(`Server did not start within timeout. Check Render logs for stderr.`);
-        }
-
-        const previewUrl = `https://${port}-${sandbox.sandboxId}.e2b.app`;
-        this.activeSandboxes.set(sandbox.sandboxId, { sandbox, createdAt: new Date(), previewUrl });
-
+        // If it succeeded, we now have a running server, but we can't easily get the URL
+        // This is just for debugging – we'll return a message
         return {
           sessionId: sandbox.sandboxId,
-          previewUrl,
-          message: 'Preview created successfully'
+          previewUrl: `Command succeeded – but server is not running in background. Check logs.`,
+          message: 'Debug mode – command executed synchronously'
         };
       } catch (err) {
         console.error(`Template ${template} failed:`, err);
