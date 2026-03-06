@@ -10,8 +10,7 @@ class E2BService {
   async createPreviewSession(files, startCommand = 'npm run dev') {
     console.log('Creating preview session with API key length:', this.apiKey?.length);
 
-    // Use only the 'node' template (known to work well)
-    const templates = ['node'];
+    const templates = ['node']; // Focus on the reliable template
     let lastError;
 
     for (const template of templates) {
@@ -47,32 +46,19 @@ class E2BService {
           console.log('No package.json found, skipping npm install');
         }
 
-        // Run the start command and monitor its output
+        // Run the start command in the background
         console.log(`Starting: ${startCommand}`);
-        // Start process in background
         const proc = await sandbox.commands.run(startCommand, { background: true });
 
-        // Capture stderr/stdout (we'll log them for debugging)
-        let stdout = '', stderr = '';
-        proc.stdout?.on('data', (data) => {
-          const chunk = data.toString();
-          stdout += chunk;
-          console.log(`[sandbox] stdout: ${chunk}`);
-        });
-        proc.stderr?.on('data', (data) => {
-          const chunk = data.toString();
-          stderr += chunk;
-          console.error(`[sandbox] stderr: ${chunk}`);
-        });
-
-        // Wait up to 30 seconds for the server to start
-        const port = 5173; // we assume this port
+        // Wait up to 30 seconds for the server to start on port 5173
+        const port = 5173;
         let ready = false;
         for (let i = 0; i < 30; i++) {
           await new Promise(r => setTimeout(r, 1000));
           // Check if process exited prematurely
           if (proc.exitCode !== null) {
-            throw new Error(`Start command exited early with code ${proc.exitCode}. stderr: ${stderr}`);
+            // Try to get the output (E2B might have a way, but we'll rely on logs for now)
+            throw new Error(`Start command exited early with code ${proc.exitCode}. Check Render logs for stderr.`);
           }
           // Try to connect to the port
           try {
@@ -87,7 +73,7 @@ class E2BService {
         }
 
         if (!ready) {
-          throw new Error(`Server did not start within timeout. Last logs: stdout: ${stdout}, stderr: ${stderr}`);
+          throw new Error(`Server did not start within timeout. Check Render logs for stderr.`);
         }
 
         const previewUrl = `https://${port}-${sandbox.sandboxId}.e2b.app`;
@@ -101,7 +87,6 @@ class E2BService {
       } catch (err) {
         console.error(`Template ${template} failed:`, err);
         lastError = err;
-        // Attempt to clean up sandbox if it was created
         if (sandbox) await sandbox.kill().catch(() => {});
       }
     }
