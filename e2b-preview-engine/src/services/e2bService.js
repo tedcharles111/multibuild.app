@@ -31,44 +31,63 @@ class E2BService {
 
           // Only run npm install if package.json exists
           const hasPackageJson = Object.keys(files).some(path => path.endsWith('package.json'));
-          let installResult = { stdout: '', stderr: '' };
           if (hasPackageJson) {
             console.log('Running npm install...');
-            installResult = await sandbox.commands.run('npm install');
-            if (installResult.exitCode !== 0) {
-              throw new Error(`npm install failed: ${installResult.stderr}`);
+            const install = await sandbox.commands.run('npm install');
+            if (install.exitCode !== 0) {
+              throw new Error(`npm install failed: ${install.stderr}`);
             }
           } else {
             console.log('No package.json found, skipping npm install');
           }
 
-          // Run the start command and capture its output
-          console.log(`Running start command: ${startCommand}`);
-          const startResult = await sandbox.commands.run(startCommand);
-          
-          // If the start command exited immediately with an error, throw
-          if (startResult.exitCode !== 0) {
-            throw new Error(`Start command failed (code ${startResult.exitCode}): ${startResult.stderr}`);
+          // Run the start command and wait for it to be ready
+          console.log(`Starting: ${startCommand}`);
+          const process = await sandbox.commands.run(startCommand, { background: true });
+
+          // Wait up to 15 seconds for the server to start
+          let ready = false;
+          for (let i = 0; i < 15; i++) {
+            await new Promise(r => setTimeout(r, 1000));
+            // Try to detect which port is listening – for simplicity, assume 5173 for Vite, 3000 for Node
+            // In a real implementation, you'd parse the logs or check open ports.
+            // For now, we'll use a fixed port based on the startCommand
+            const port = startCommand.includes('vite') ? 5173 : 3000;
+            try {
+              const test = await fetch(`http://localhost:${port}`);
+              if (test.ok) {
+                ready = true;
+                break;
+              }
+            } catch {
+              // not ready yet
+            }
           }
 
-          // Construct preview URL (hardcoded port – adjust if needed)
-          const previewUrl = `https://${5173}-${sandbox.sandboxId}.e2b.app`;
+          if (!ready) {
+            // Capture logs to see what happened
+            const logs = await sandbox.commands.run('cat /tmp/server.log 2>/dev/null || echo "No logs"');
+            throw new Error(`Server did not start within timeout. Logs: ${logs.stdout} ${logs.stderr}`);
+          }
+
+          const port = startCommand.includes('vite') ? 5173 : 3000;
+          const previewUrl = `https://${port}-${sandbox.sandboxId}.e2b.app`;
           this.activeSandboxes.set(sandbox.sandboxId, { sandbox, createdAt: new Date(), previewUrl });
 
           return {
             sessionId: sandbox.sandboxId,
             previewUrl,
-            logs: { stdout: installResult.stdout, stderr: installResult.stderr }
+            message: 'Preview created successfully'
           };
         } else {
           console.log(`Template ${template} returned sandbox without filesystem`, sandbox);
         }
       } catch (err) {
-        console.error(`Template ${template} failed – full error:`, err);
+        console.error(`Template ${template} failed:`, err);
         lastError = err;
       }
     }
-    throw new Error(`All templates failed. Last error: ${lastError?.message || 'unknown'}. See server logs for details.`);
+    throw new Error(`All templates failed. Last error: ${lastError?.message || 'unknown'}. See server logs.`);
   }
 
   async stopSession(sessionId) {
