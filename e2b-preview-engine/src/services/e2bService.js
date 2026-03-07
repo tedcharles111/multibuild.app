@@ -43,19 +43,37 @@ class E2BService {
           console.log('No package.json found, skipping npm install');
         }
 
-        // 🔥 Run the start command synchronously to capture output
-        console.log(`Starting synchronously: ${startCommand}`);
-        const result = await sandbox.commands.run(startCommand);
-        if (result.exitCode !== 0) {
-          throw new Error(`Start command failed (code ${result.exitCode}): ${result.stderr}`);
+        // Start the server in the background
+        console.log(`Starting in background: ${startCommand}`);
+        await sandbox.commands.run(startCommand, { background: true });
+
+        // Wait up to 30 seconds for the server to start on port 5173
+        const port = 5173;
+        let ready = false;
+        for (let i = 0; i < 30; i++) {
+          await new Promise(r => setTimeout(r, 1000));
+          try {
+            const test = await fetch(`http://localhost:${port}`);
+            if (test.ok) {
+              ready = true;
+              break;
+            }
+          } catch {
+            // port not ready yet
+          }
         }
 
-        // If it succeeded, we now have a running server, but we can't easily get the URL
-        // This is just for debugging – we'll return a message
+        if (!ready) {
+          throw new Error(`Server did not start within timeout on port ${port}.`);
+        }
+
+        const previewUrl = `https://${port}-${sandbox.sandboxId}.e2b.app`;
+        this.activeSandboxes.set(sandbox.sandboxId, { sandbox, createdAt: new Date(), previewUrl });
+
         return {
           sessionId: sandbox.sandboxId,
-          previewUrl: `Command succeeded – but server is not running in background. Check logs.`,
-          message: 'Debug mode – command executed synchronously'
+          previewUrl,
+          message: 'Preview created successfully'
         };
       } catch (err) {
         console.error(`Template ${template} failed:`, err);
