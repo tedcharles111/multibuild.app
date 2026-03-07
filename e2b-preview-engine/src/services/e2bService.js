@@ -43,17 +43,22 @@ class E2BService {
           console.log('No package.json found, skipping npm install');
         }
 
-        // Start the server in the background
+        // Determine expected port based on startCommand
+        let expectedPort = 5173; // default for Vite
+        if (startCommand.includes('node')) {
+          expectedPort = 3000; // default for Node.js servers
+        }
+        // You can add more framework detection here
+
         console.log(`Starting in background: ${startCommand}`);
         await sandbox.commands.run(startCommand, { background: true });
 
-        // Wait up to 30 seconds for the server to start on port 5173
-        const port = 5173;
+        // Wait up to 30 seconds for the server to start on the expected port
         let ready = false;
         for (let i = 0; i < 30; i++) {
           await new Promise(r => setTimeout(r, 1000));
           try {
-            const test = await fetch(`http://localhost:${port}`);
+            const test = await fetch(`http://localhost:${expectedPort}`);
             if (test.ok) {
               ready = true;
               break;
@@ -64,10 +69,10 @@ class E2BService {
         }
 
         if (!ready) {
-          throw new Error(`Server did not start within timeout on port ${port}.`);
+          throw new Error(`Server did not start within timeout on port ${expectedPort}.`);
         }
 
-        const previewUrl = `https://${port}-${sandbox.sandboxId}.e2b.app`;
+        const previewUrl = `https://${expectedPort}-${sandbox.sandboxId}.e2b.app`;
         this.activeSandboxes.set(sandbox.sandboxId, { sandbox, createdAt: new Date(), previewUrl });
 
         return {
