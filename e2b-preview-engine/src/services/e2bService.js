@@ -10,7 +10,7 @@ class E2BService {
   async createPreviewSession(files, startCommand = 'npm run dev') {
     console.log('Creating preview session with API key length:', this.apiKey?.length);
 
-    const templates = ['node'];
+    const templates = ['nodejs', 'node-18', 'node', 'base', 'ubuntu'];
     let lastError;
 
     for (const template of templates) {
@@ -28,10 +28,12 @@ class E2BService {
         }
         console.log(`✅ Template ${template} succeeded`);
 
+        // Write files
         for (const [filePath, content] of Object.entries(files)) {
           await sandbox.files.write(filePath, content);
         }
 
+        // Only run npm install if package.json exists
         const hasPackageJson = Object.keys(files).some(path => path.endsWith('package.json'));
         if (hasPackageJson) {
           console.log('Running npm install...');
@@ -43,22 +45,28 @@ class E2BService {
           console.log('No package.json found, skipping npm install');
         }
 
-        // Determine expected port based on startCommand
-        let expectedPort = 5173; // default for Vite
-        if (startCommand.includes('node')) {
-          expectedPort = 3000; // default for Node.js servers
-        }
-        // You can add more framework detection here
+        // Run the start command and capture output
+        console.log(`Starting: ${startCommand}`);
+        // We run synchronously to get the output (but it will block if the server runs forever)
+        // Instead, we run in background and then poll, but we need the error if it fails early.
+        // Let's run in background and also capture stderr via a separate mechanism.
+        const proc = await sandbox.commands.run(startCommand, { background: true });
 
-        console.log(`Starting in background: ${startCommand}`);
-        await sandbox.commands.run(startCommand, { background: true });
-
-        // Wait up to 30 seconds for the server to start on the expected port
+        // Wait up to 60 seconds for the server to start on the expected port
+        const port = startCommand.includes('vite') ? 5173 : 3000;
         let ready = false;
-        for (let i = 0; i < 30; i++) {
+        let stderr = '';
+        proc.stderr?.on('data', (data) => { stderr += data.toString(); });
+
+        for (let i = 0; i < 60; i++) {
           await new Promise(r => setTimeout(r, 1000));
+          // Check if process exited
+          if (proc.exitCode !== null) {
+            throw new Error(`Start command exited with code ${proc.exitCode}. Stderr: ${stderr}`);
+          }
+          // Try to connect to the port
           try {
-            const test = await fetch(`http://localhost:${expectedPort}`);
+            const test = await fetch(`http://localhost:${port}`);
             if (test.ok) {
               ready = true;
               break;
@@ -69,10 +77,10 @@ class E2BService {
         }
 
         if (!ready) {
-          throw new Error(`Server did not start within timeout on port ${expectedPort}.`);
+          throw new Error(`Server did not start within timeout on port ${port}. Stderr: ${stderr}`);
         }
 
-        const previewUrl = `https://${expectedPort}-${sandbox.sandboxId}.e2b.app`;
+        const previewUrl = `https://${port}-${sandbox.sandboxId}.e2b.app`;
         this.activeSandboxes.set(sandbox.sandboxId, { sandbox, createdAt: new Date(), previewUrl });
 
         return {
