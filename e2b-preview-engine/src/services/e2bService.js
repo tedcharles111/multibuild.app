@@ -45,26 +45,23 @@ class E2BService {
           console.log('No package.json found, skipping npm install');
         }
 
-        // Run the start command and capture output
-        console.log(`Starting: ${startCommand}`);
-        // We run synchronously to get the output (but it will block if the server runs forever)
-        // Instead, we run in background and then poll, but we need the error if it fails early.
-        // Let's run in background and also capture stderr via a separate mechanism.
+        // Start the process in background
+        console.log(`Starting in background: ${startCommand}`);
         const proc = await sandbox.commands.run(startCommand, { background: true });
 
-        // Wait up to 60 seconds for the server to start on the expected port
-        const port = startCommand.includes('vite') ? 5173 : 3000;
-        let ready = false;
-        let stderr = '';
-        proc.stderr?.on('data', (data) => { stderr += data.toString(); });
+        // Wait a bit to see if the process exits immediately
+        await new Promise(r => setTimeout(r, 2000));
+        if (proc.exitCode !== null) {
+          throw new Error(`Process exited early with code ${proc.exitCode}`);
+        }
 
+        // Determine expected port
+        const port = startCommand.includes('vite') ? 5173 : 3000;
+
+        // Wait up to 60 seconds for the server to start
+        let ready = false;
         for (let i = 0; i < 60; i++) {
           await new Promise(r => setTimeout(r, 1000));
-          // Check if process exited
-          if (proc.exitCode !== null) {
-            throw new Error(`Start command exited with code ${proc.exitCode}. Stderr: ${stderr}`);
-          }
-          // Try to connect to the port
           try {
             const test = await fetch(`http://localhost:${port}`);
             if (test.ok) {
@@ -77,7 +74,7 @@ class E2BService {
         }
 
         if (!ready) {
-          throw new Error(`Server did not start within timeout on port ${port}. Stderr: ${stderr}`);
+          throw new Error(`Server did not start within timeout on port ${port}.`);
         }
 
         const previewUrl = `https://${port}-${sandbox.sandboxId}.e2b.app`;
